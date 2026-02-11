@@ -17,6 +17,7 @@ import OrderSuccessPage from "@/pages/OrderSuccessPage";
 import OrdersPage from "@/pages/OrdersPage";
 import LoginPage from "@/pages/LoginPage";
 import SignupPage from "@/pages/SignupPage";
+import AdminLoginPage from "@/pages/AdminLoginPage";
 import AdminPage from "@/pages/AdminPage";
 import NotFound from "@/pages/NotFound";
 
@@ -44,6 +45,7 @@ const App = () => (
                     <Route path="/orders" element={<OrdersPage />} />
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/signup" element={<SignupPage />} />
+                    <Route path="/admin-login" element={<AdminLoginPage />} />
                     <Route path="/admin" element={<AdminPage />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
