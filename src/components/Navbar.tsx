@@ -50,9 +50,14 @@ const Navbar = () => {
               </button>
             </div>
           ) : (
-            <Link to="/login" className="flex items-center gap-1.5 text-sm font-medium bg-primary text-primary-foreground px-4 py-2 rounded-md btn-transition">
-              <User size={16} />Login
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link to="/login" className="flex items-center gap-1.5 text-sm font-medium bg-primary text-primary-foreground px-4 py-2 rounded-md btn-transition">
+                <User size={16} />Login
+              </Link>
+              <Link to="/admin-login" className="flex items-center gap-1.5 text-sm font-medium border border-primary text-primary px-4 py-2 rounded-md hover:bg-primary/10 transition-colors">
+                <LayoutDashboard size={16} />Admin
+              </Link>
+            </div>
           )}
         </div>
 
@@ -82,7 +87,10 @@ const Navbar = () => {
             {user ? (
               <button onClick={() => { logout(); setMobileOpen(false); }} className="text-sm font-medium py-2 text-destructive text-left">Logout</button>
             ) : (
-              <Link to="/login" onClick={() => setMobileOpen(false)} className="text-sm font-medium py-2 text-primary">Login</Link>
+              <>
+                <Link to="/login" onClick={() => setMobileOpen(false)} className="text-sm font-medium py-2 text-primary">Login</Link>
+                <Link to="/admin-login" onClick={() => setMobileOpen(false)} className="text-sm font-medium py-2 text-primary">Admin Login</Link>
+              </>
             )}
           </div>
         </div>
