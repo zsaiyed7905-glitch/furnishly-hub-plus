@@ -1,22 +1,20 @@
-import React, { useMemo } from "react";
+import React from "react";
 import { useParams, Link } from "react-router-dom";
-import { products } from "@/data/products";
+import { useProducts } from "@/hooks/useProducts";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { ShoppingCart, ArrowLeft } from "lucide-react";
+import LoadingSpinner from "@/components/LoadingSpinner";
 
 const ProductDetailPage = () => {
   const { id } = useParams();
   const { addToCart } = useCart();
   const { isAdmin } = useAuth();
+  const { products, loading } = useProducts();
 
-  const allProducts = useMemo(() => {
-    const stored = localStorage.getItem("furnishop_products");
-    if (stored) return JSON.parse(stored);
-    return products;
-  }, []);
+  if (loading) return <LoadingSpinner />;
 
-  const product = allProducts.find((p: any) => p.id === Number(id));
+  const product = products.find(p => p.id === Number(id));
 
   if (!product) {
     return (
@@ -35,7 +33,7 @@ const ProductDetailPage = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
         <div className="aspect-square rounded-lg overflow-hidden bg-secondary">
-          <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+          <img src={product.image || ""} alt={product.name} className="w-full h-full object-cover" />
         </div>
         <div className="flex flex-col justify-center space-y-6">
           <div>

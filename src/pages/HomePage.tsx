@@ -1,10 +1,13 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { products, categories } from "@/data/products";
+import { categories } from "@/data/products";
+import { useProducts } from "@/hooks/useProducts";
 import ProductCard from "@/components/ProductCard";
 import { ArrowRight, Truck, Shield, Headphones } from "lucide-react";
+import LoadingSpinner from "@/components/LoadingSpinner";
 
 const HomePage = () => {
+  const { products, loading } = useProducts();
   const featured = products.filter(p => p.featured);
 
   return (
@@ -61,9 +64,13 @@ const HomePage = () => {
             View All <ArrowRight size={14} />
           </Link>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {featured.map(p => <ProductCard key={p.id} product={p} />)}
-        </div>
+        {loading ? (
+          <LoadingSpinner />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {featured.map(p => <ProductCard key={p.id} product={p} />)}
+          </div>
+        )}
       </section>
 
       {/* Trust */}

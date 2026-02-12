@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { products, categories } from "@/data/products";
+import { categories } from "@/data/products";
+import { useProducts } from "@/hooks/useProducts";
 import ProductCard from "@/components/ProductCard";
+import LoadingSpinner from "@/components/LoadingSpinner";
 import { Search, SlidersHorizontal } from "lucide-react";
 
 const ProductsPage = () => {
@@ -10,21 +12,16 @@ const ProductsPage = () => {
   const [category, setCategory] = useState(searchParams.get("category") || "");
   const [maxPrice, setMaxPrice] = useState<number>(200000);
   const [showFilters, setShowFilters] = useState(false);
-
-  const allProducts = useMemo(() => {
-    const stored = localStorage.getItem("furnishop_products");
-    if (stored) return JSON.parse(stored);
-    return products;
-  }, []);
+  const { products, loading } = useProducts();
 
   const filtered = useMemo(() => {
-    return allProducts.filter((p: any) => {
+    return products.filter((p) => {
       const matchesSearch = !search || p.name.toLowerCase().includes(search.toLowerCase());
       const matchesCategory = !category || p.category === category;
       const matchesPrice = p.price <= maxPrice;
       return matchesSearch && matchesCategory && matchesPrice;
     });
-  }, [allProducts, search, category, maxPrice]);
+  }, [products, search, category, maxPrice]);
 
   return (
     <div className="container mx-auto px-4 py-8 animate-fade-in">
@@ -86,11 +83,13 @@ const ProductsPage = () => {
         </aside>
 
         <div className="flex-1">
-          {filtered.length === 0 ? (
+          {loading ? (
+            <LoadingSpinner />
+          ) : filtered.length === 0 ? (
             <p className="text-center text-muted-foreground py-12">No products found matching your criteria.</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filtered.map((p: any) => <ProductCard key={p.id} product={p} />)}
+              {filtered.map(p => <ProductCard key={p.id} product={p} />)}
             </div>
           )}
         </div>

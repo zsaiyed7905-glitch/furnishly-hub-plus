@@ -14,14 +14,11 @@ const CheckoutPage = () => {
   const [paymentMethod, setPaymentMethod] = useState<"COD" | "Online">("COD");
   const [processing, setProcessing] = useState(false);
 
-  // Card form state
   const [cardNumber, setCardNumber] = useState("");
   const [cardName, setCardName] = useState("");
   const [cardExpiry, setCardExpiry] = useState("");
   const [cardCvv, setCardCvv] = useState("");
   const [cardType, setCardType] = useState<"debit" | "credit" | "upi">("debit");
-
-  // UPI state
   const [upiId, setUpiId] = useState("");
 
   if (!user || items.length === 0) {
@@ -60,15 +57,28 @@ const CheckoutPage = () => {
     if (paymentMethod === "Online" && !isOnlineFormValid()) return;
     setProcessing(true);
     await new Promise(r => setTimeout(r, 1500));
-    const order = placeOrder({
-      userId: user.id,
-      items,
+    
+    const orderItems = items.map(({ product, quantity }) => ({
+      product_id: product.id,
+      product_name: product.name,
+      product_image: product.image,
+      price: product.price,
+      quantity,
+    }));
+
+    const order = await placeOrder({
       total: grandTotal,
-      paymentMethod,
+      payment_method: paymentMethod,
       address,
+      items: orderItems,
     });
-    clearCart();
-    navigate("/order-success", { state: { orderId: order.id } });
+
+    if (order) {
+      clearCart();
+      navigate("/order-success", { state: { orderId: order.id } });
+    } else {
+      setProcessing(false);
+    }
   };
 
   return (
@@ -76,7 +86,6 @@ const CheckoutPage = () => {
       <h1 className="font-display text-3xl font-bold mb-8">Checkout</h1>
 
       <div className="space-y-6">
-        {/* Address */}
         <div className="bg-card border border-border rounded-lg p-6">
           <h2 className="font-display text-lg font-semibold mb-4">Delivery Address</h2>
           <textarea
@@ -88,7 +97,6 @@ const CheckoutPage = () => {
           />
         </div>
 
-        {/* Payment */}
         <div className="bg-card border border-border rounded-lg p-6">
           <h2 className="font-display text-lg font-semibold mb-4">Payment Method</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -114,10 +122,8 @@ const CheckoutPage = () => {
             </button>
           </div>
 
-          {/* Online Payment Form */}
           {paymentMethod === "Online" && (
             <div className="mt-6 space-y-4 border-t border-border pt-6">
-              {/* Card Type Tabs */}
               <div className="flex gap-2">
                 {([
                   { key: "debit", label: "Debit Card", icon: CreditCard },
@@ -137,70 +143,39 @@ const CheckoutPage = () => {
               {cardType === "upi" ? (
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1">UPI ID</label>
-                  <input
-                    type="text"
-                    value={upiId}
-                    onChange={e => setUpiId(e.target.value)}
-                    placeholder="yourname@upi"
-                    className="w-full p-2.5 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">Demo: Enter any valid UPI ID format</p>
+                  <input type="text" value={upiId} onChange={e => setUpiId(e.target.value)} placeholder="yourname@upi"
+                    className="w-full p-2.5 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
                 </div>
               ) : (
                 <>
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-1">Card Number</label>
-                    <input
-                      type="text"
-                      value={cardNumber}
-                      onChange={e => setCardNumber(formatCardNumber(e.target.value))}
-                      placeholder="1234 5678 9012 3456"
-                      maxLength={19}
-                      className="w-full p-2.5 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    />
+                    <input type="text" value={cardNumber} onChange={e => setCardNumber(formatCardNumber(e.target.value))} placeholder="1234 5678 9012 3456" maxLength={19}
+                      className="w-full p-2.5 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-1">Name on Card</label>
-                    <input
-                      type="text"
-                      value={cardName}
-                      onChange={e => setCardName(e.target.value)}
-                      placeholder="Full name as on card"
-                      className="w-full p-2.5 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    />
+                    <input type="text" value={cardName} onChange={e => setCardName(e.target.value)} placeholder="Full name as on card"
+                      className="w-full p-2.5 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-foreground mb-1">Expiry Date</label>
-                      <input
-                        type="text"
-                        value={cardExpiry}
-                        onChange={e => setCardExpiry(formatExpiry(e.target.value))}
-                        placeholder="MM/YY"
-                        maxLength={5}
-                        className="w-full p-2.5 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
+                      <input type="text" value={cardExpiry} onChange={e => setCardExpiry(formatExpiry(e.target.value))} placeholder="MM/YY" maxLength={5}
+                        className="w-full p-2.5 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-foreground mb-1">CVV</label>
-                      <input
-                        type="password"
-                        value={cardCvv}
-                        onChange={e => setCardCvv(e.target.value.replace(/\D/g, "").substring(0, 3))}
-                        placeholder="•••"
-                        maxLength={3}
-                        className="w-full p-2.5 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
+                      <input type="password" value={cardCvv} onChange={e => setCardCvv(e.target.value.replace(/\D/g, "").substring(0, 3))} placeholder="•••" maxLength={3}
+                        className="w-full p-2.5 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
                     </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">Demo: Enter any 16-digit card number to simulate payment</p>
                 </>
               )}
             </div>
           )}
         </div>
 
-        {/* Billing Summary */}
         <div className="bg-card border border-border rounded-lg p-6">
           <h2 className="font-display text-lg font-semibold mb-4">Billing Summary</h2>
           {items.map(({ product, quantity }) => (
@@ -211,20 +186,16 @@ const CheckoutPage = () => {
           ))}
           <div className="border-t border-border mt-3 pt-3 space-y-1">
             <div className="flex justify-between text-sm text-muted-foreground">
-              <span>Subtotal</span>
-              <span>₹{total.toLocaleString("en-IN")}</span>
+              <span>Subtotal</span><span>₹{total.toLocaleString("en-IN")}</span>
             </div>
             <div className="flex justify-between text-sm text-muted-foreground">
-              <span>GST (18%)</span>
-              <span>₹{gst.toLocaleString("en-IN")}</span>
+              <span>GST (18%)</span><span>₹{gst.toLocaleString("en-IN")}</span>
             </div>
             <div className="flex justify-between text-sm text-muted-foreground">
-              <span>Shipping</span>
-              <span>{shipping === 0 ? "Free" : `₹${shipping.toLocaleString("en-IN")}`}</span>
+              <span>Shipping</span><span>{shipping === 0 ? "Free" : `₹${shipping.toLocaleString("en-IN")}`}</span>
             </div>
             <div className="border-t border-border pt-2 flex justify-between font-bold text-foreground">
-              <span>Grand Total</span>
-              <span>₹{grandTotal.toLocaleString("en-IN")}</span>
+              <span>Grand Total</span><span>₹{grandTotal.toLocaleString("en-IN")}</span>
             </div>
           </div>
         </div>
