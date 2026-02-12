@@ -1,7 +1,9 @@
-import React, { useState, useMemo } from "react";
-import { useAuth, User } from "@/contexts/AuthContext";
-import { useOrders, Order } from "@/contexts/OrderContext";
-import { products as defaultProducts, Product, categories } from "@/data/products";
+import React, { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useOrders } from "@/contexts/OrderContext";
+import { useProducts } from "@/hooks/useProducts";
+import { Product, categories } from "@/data/products";
+import { supabase } from "@/integrations/supabase/client";
 import { Navigate } from "react-router-dom";
 import {
   Package, Users, ShoppingBag, Plus, Pencil, Trash2, X,
@@ -10,10 +12,20 @@ import {
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
 } from "@/components/ui/table";
+import LoadingSpinner from "@/components/LoadingSpinner";
+
+interface ProfileUser {
+  id: string;
+  user_id: string;
+  name: string;
+  email: string;
+  role?: string;
+}
 
 const AdminPage = () => {
-  const { user, isAdmin } = useAuth();
-  const { orders, updateOrderStatus } = useOrders();
+  const { user, isAdmin, loading: authLoading } = useAuth();
+  const { allOrders, fetchAllOrders, updateOrderStatus } = useOrders();
+  const { products, loading: productsLoading, refetch: refetchProducts } = useProducts();
   const [tab, setTab] = useState<"dashboard" | "products" | "orders" | "users">("dashboard");
   const [showForm, setShowForm] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
@@ -21,50 +33,50 @@ const AdminPage = () => {
   const [orderFilter, setOrderFilter] = useState<string>("All");
   const [userSearch, setUserSearch] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
-
-  const [productList, setProductList] = useState<Product[]>(() => {
-    const stored = localStorage.getItem("furnishop_products");
-    return stored ? JSON.parse(stored) : defaultProducts;
-  });
-
-  const saveProducts = (list: Product[]) => {
-    setProductList(list);
-    localStorage.setItem("furnishop_products", JSON.stringify(list));
-  };
-
   const [form, setForm] = useState({ name: "", price: "", category: categories[0], description: "", image: "", featured: false });
 
-  const [userList, setUserList] = useState<(User & { password?: string })[]>(() => {
-    const stored = localStorage.getItem("furnishop_users");
-    return stored ? JSON.parse(stored) : [
-      { id: 1, name: "Admin", email: "admin@furnishop.com", role: "admin" },
-      { id: 2, name: "John Doe", email: "john@example.com", role: "user" },
-    ];
-  });
+  const [userList, setUserList] = useState<ProfileUser[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
 
-  const saveUsers = (list: (User & { password?: string })[]) => {
-    setUserList(list);
-    localStorage.setItem("furnishop_users", JSON.stringify(list));
-  };
+  const fetchUsers = useCallback(async () => {
+    if (!isAdmin) return;
+    setUsersLoading(true);
+    const { data: profiles } = await supabase.from("profiles").select("*");
+    const { data: roles } = await supabase.from("user_roles").select("*");
 
-  if (!user || !isAdmin) return <Navigate to="/login" />;
+    if (profiles) {
+      const usersWithRoles = profiles.map((p: any) => {
+        const userRoles = roles?.filter((r: any) => r.user_id === p.user_id) ?? [];
+        const hasAdmin = userRoles.some((r: any) => r.role === "admin");
+        return { ...p, role: hasAdmin ? "admin" : "user" };
+      });
+      setUserList(usersWithRoles);
+    }
+    setUsersLoading(false);
+  }, [isAdmin]);
 
-  // Dashboard stats
-  const totalRevenue = orders.reduce((sum, o) => o.status !== "Cancelled" ? sum + o.total : sum, 0);
-  const pendingOrders = orders.filter(o => o.status === "Pending").length;
-  const deliveredOrders = orders.filter(o => o.status === "Delivered").length;
-  const cancelledOrders = orders.filter(o => o.status === "Cancelled").length;
+  useEffect(() => {
+    if (isAdmin) {
+      fetchAllOrders();
+      fetchUsers();
+    }
+  }, [isAdmin, fetchAllOrders, fetchUsers]);
 
-  // Filtered products
-  const filteredProducts = productList.filter(p =>
+  if (authLoading) return <LoadingSpinner />;
+  if (!user || !isAdmin) return <Navigate to="/admin-login" />;
+
+  const totalRevenue = allOrders.reduce((sum, o) => o.status !== "Cancelled" ? sum + o.total : sum, 0);
+  const pendingOrders = allOrders.filter(o => o.status === "Pending").length;
+  const deliveredOrders = allOrders.filter(o => o.status === "Delivered").length;
+  const cancelledOrders = allOrders.filter(o => o.status === "Cancelled").length;
+
+  const filteredProducts = products.filter(p =>
     p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
     p.category.toLowerCase().includes(productSearch.toLowerCase())
   );
 
-  // Filtered orders
-  const filteredOrders = orderFilter === "All" ? orders : orders.filter(o => o.status === orderFilter);
+  const filteredOrders = orderFilter === "All" ? allOrders : allOrders.filter(o => o.status === orderFilter);
 
-  // Filtered users
   const filteredUsers = userList.filter(u =>
     u.name.toLowerCase().includes(userSearch.toLowerCase()) ||
     u.email.toLowerCase().includes(userSearch.toLowerCase())
@@ -78,50 +90,49 @@ const AdminPage = () => {
 
   const openEditForm = (p: Product) => {
     setEditProduct(p);
-    setForm({ name: p.name, price: String(p.price), category: p.category, description: p.description, image: p.image, featured: !!p.featured });
+    setForm({ name: p.name, price: String(p.price), category: p.category, description: p.description || "", image: p.image || "", featured: !!p.featured });
     setShowForm(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.name || !form.price) return;
+    const productData = {
+      name: form.name,
+      price: Number(form.price),
+      category: form.category,
+      description: form.description,
+      image: form.image || "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=600&h=600&fit=crop",
+      featured: form.featured,
+    };
+
     if (editProduct) {
-      saveProducts(productList.map(p => p.id === editProduct.id ? { ...p, name: form.name, price: Number(form.price), category: form.category, description: form.description, image: form.image, featured: form.featured } : p));
+      await supabase.from("products").update(productData).eq("id", editProduct.id);
     } else {
-      const newProduct: Product = {
-        id: Date.now(), name: form.name, price: Number(form.price), category: form.category,
-        description: form.description,
-        image: form.image || "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=600&h=600&fit=crop",
-        featured: form.featured,
-      };
-      saveProducts([...productList, newProduct]);
+      await supabase.from("products").insert(productData);
     }
     setShowForm(false);
+    refetchProducts();
   };
 
-  const handleDeleteProduct = (id: number) => {
+  const handleDeleteProduct = async (id: number) => {
     if (deleteConfirm === id) {
-      saveProducts(productList.filter(p => p.id !== id));
+      await supabase.from("products").delete().eq("id", id);
       setDeleteConfirm(null);
+      refetchProducts();
     } else {
       setDeleteConfirm(id);
       setTimeout(() => setDeleteConfirm(null), 3000);
     }
   };
 
-  const handleToggleRole = (userId: number) => {
-    if (userId === user.id) return; // can't change own role
-    saveUsers(userList.map(u => u.id === userId ? { ...u, role: u.role === "admin" ? "user" as const : "admin" as const } : u));
-  };
-
-  const handleDeleteUser = (userId: number) => {
-    if (userId === user.id) return; // can't delete self
-    if (deleteConfirm === userId) {
-      saveUsers(userList.filter(u => u.id !== userId));
-      setDeleteConfirm(null);
+  const handleToggleRole = async (userId: string, currentRole: string) => {
+    if (userId === user.id) return;
+    if (currentRole === "admin") {
+      await supabase.from("user_roles").delete().eq("user_id", userId).eq("role", "admin");
     } else {
-      setDeleteConfirm(userId);
-      setTimeout(() => setDeleteConfirm(null), 3000);
+      await supabase.from("user_roles").insert({ user_id: userId, role: "admin" as any });
     }
+    fetchUsers();
   };
 
   const tabs = [
@@ -132,8 +143,8 @@ const AdminPage = () => {
   ] as const;
 
   const statCards = [
-    { label: "Total Products", value: productList.length, icon: Package, color: "text-primary" },
-    { label: "Total Orders", value: orders.length, icon: ShoppingBag, color: "text-accent" },
+    { label: "Total Products", value: products.length, icon: Package, color: "text-primary" },
+    { label: "Total Orders", value: allOrders.length, icon: ShoppingBag, color: "text-accent" },
     { label: "Total Users", value: userList.length, icon: Users, color: "text-foreground" },
     { label: "Revenue", value: `₹${totalRevenue.toLocaleString("en-IN")}`, icon: IndianRupee, color: "text-green-600" },
   ];
@@ -181,13 +192,12 @@ const AdminPage = () => {
               <p className="text-xs text-muted-foreground mt-1">Cancelled</p>
             </div>
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 text-center">
-              <p className="text-2xl font-bold text-blue-600">{orders.length - pendingOrders - deliveredOrders - cancelledOrders}</p>
+              <p className="text-2xl font-bold text-blue-600">{allOrders.length - pendingOrders - deliveredOrders - cancelledOrders}</p>
               <p className="text-xs text-muted-foreground mt-1">Shipped</p>
             </div>
           </div>
 
-          {/* Recent Orders */}
-          {orders.length > 0 && (
+          {allOrders.length > 0 && (
             <div>
               <h2 className="font-display text-lg font-semibold mb-3">Recent Orders</h2>
               <div className="bg-card border border-border rounded-lg overflow-hidden">
@@ -201,10 +211,10 @@ const AdminPage = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {orders.slice(0, 5).map(order => (
+                    {allOrders.slice(0, 5).map(order => (
                       <TableRow key={order.id}>
                         <TableCell className="font-medium text-sm">#{order.id}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{new Date(order.date).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{new Date(order.created_at).toLocaleDateString()}</TableCell>
                         <TableCell className="text-sm">₹{order.total.toLocaleString("en-IN")}</TableCell>
                         <TableCell>
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -233,50 +243,48 @@ const AdminPage = () => {
             </button>
             <div className="relative flex-1 min-w-[200px] max-w-sm">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input
-                placeholder="Search products..."
-                value={productSearch}
-                onChange={e => setProductSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
+              <input placeholder="Search products..." value={productSearch} onChange={e => setProductSearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
             </div>
             <p className="text-xs text-muted-foreground">{filteredProducts.length} product(s)</p>
           </div>
 
-          <div className="bg-card border border-border rounded-lg overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Image</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead>Featured</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredProducts.map(p => (
-                  <TableRow key={p.id}>
-                    <TableCell><img src={p.image} alt={p.name} className="w-12 h-12 rounded object-cover" /></TableCell>
-                    <TableCell className="font-medium text-sm">{p.name}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{p.category}</TableCell>
-                    <TableCell className="text-sm">₹{p.price.toLocaleString("en-IN")}</TableCell>
-                    <TableCell>{p.featured ? <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">Yes</span> : <span className="text-xs text-muted-foreground">No</span>}</TableCell>
-                    <TableCell className="text-right">
-                      <button onClick={() => openEditForm(p)} className="p-2 text-muted-foreground hover:text-primary transition-colors"><Pencil size={16} /></button>
-                      <button onClick={() => handleDeleteProduct(p.id)} className={`p-2 transition-colors ${deleteConfirm === p.id ? "text-destructive font-bold" : "text-muted-foreground hover:text-destructive"}`}>
-                        <Trash2 size={16} />
-                      </button>
-                    </TableCell>
+          {productsLoading ? <LoadingSpinner /> : (
+            <div className="bg-card border border-border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Image</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Price</TableHead>
+                    <TableHead>Featured</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                ))}
-                {filteredProducts.length === 0 && (
-                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No products found.</TableCell></TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {filteredProducts.map(p => (
+                    <TableRow key={p.id}>
+                      <TableCell><img src={p.image || ""} alt={p.name} className="w-12 h-12 rounded object-cover" /></TableCell>
+                      <TableCell className="font-medium text-sm">{p.name}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{p.category}</TableCell>
+                      <TableCell className="text-sm">₹{p.price.toLocaleString("en-IN")}</TableCell>
+                      <TableCell>{p.featured ? <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">Yes</span> : <span className="text-xs text-muted-foreground">No</span>}</TableCell>
+                      <TableCell className="text-right">
+                        <button onClick={() => openEditForm(p)} className="p-2 text-muted-foreground hover:text-primary transition-colors"><Pencil size={16} /></button>
+                        <button onClick={() => handleDeleteProduct(p.id)} className={`p-2 transition-colors ${deleteConfirm === p.id ? "text-destructive font-bold" : "text-muted-foreground hover:text-destructive"}`}>
+                          <Trash2 size={16} />
+                        </button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {filteredProducts.length === 0 && (
+                    <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No products found.</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </div>
       )}
 
@@ -286,11 +294,8 @@ const AdminPage = () => {
           <div className="flex flex-wrap items-center gap-3 mb-6">
             <Filter size={16} className="text-muted-foreground" />
             {["All", "Pending", "Shipped", "Delivered", "Cancelled"].map(status => (
-              <button
-                key={status}
-                onClick={() => setOrderFilter(status)}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${orderFilter === status ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground hover:bg-secondary/80"}`}
-              >
+              <button key={status} onClick={() => setOrderFilter(status)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${orderFilter === status ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground hover:bg-secondary/80"}`}>
                 {status}
               </button>
             ))}
@@ -309,7 +314,6 @@ const AdminPage = () => {
                     <TableHead>Items</TableHead>
                     <TableHead>Payment</TableHead>
                     <TableHead>Total</TableHead>
-                    <TableHead>Address</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -317,21 +321,15 @@ const AdminPage = () => {
                   {filteredOrders.map(order => (
                     <TableRow key={order.id}>
                       <TableCell className="font-medium text-sm">#{order.id}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{new Date(order.date).toLocaleDateString()}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">{order.items.map(i => `${i.product.name} ×${i.quantity}`).join(", ")}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{order.paymentMethod}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{new Date(order.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">{order.items.map(i => `${i.product_name} ×${i.quantity}`).join(", ")}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{order.payment_method}</TableCell>
                       <TableCell className="text-sm font-medium">₹{order.total.toLocaleString("en-IN")}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground max-w-[150px] truncate">{order.address}</TableCell>
                       <TableCell>
-                        <select
-                          value={order.status}
-                          onChange={e => updateOrderStatus(order.id, e.target.value as Order["status"])}
+                        <select value={order.status} onChange={e => updateOrderStatus(order.id, e.target.value)}
                           className={`text-xs border border-input rounded-md px-2 py-1 bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring ${
-                            order.status === "Delivered" ? "text-green-600" :
-                            order.status === "Cancelled" ? "text-red-600" :
-                            order.status === "Shipped" ? "text-blue-600" : "text-yellow-600"
-                          }`}
-                        >
+                            order.status === "Delivered" ? "text-green-600" : order.status === "Cancelled" ? "text-red-600" : order.status === "Shipped" ? "text-blue-600" : "text-yellow-600"
+                          }`}>
                           <option>Pending</option>
                           <option>Shipped</option>
                           <option>Delivered</option>
@@ -353,64 +351,55 @@ const AdminPage = () => {
           <div className="flex flex-wrap items-center gap-3 mb-6">
             <div className="relative flex-1 min-w-[200px] max-w-sm">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input
-                placeholder="Search users..."
-                value={userSearch}
-                onChange={e => setUserSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
+              <input placeholder="Search users..." value={userSearch} onChange={e => setUserSearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
             </div>
             <p className="text-xs text-muted-foreground">{filteredUsers.length} user(s)</p>
           </div>
 
-          <div className="bg-card border border-border rounded-lg overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredUsers.map(u => (
-                  <TableRow key={u.id}>
-                    <TableCell className="font-medium text-sm">{u.name}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{u.email}</TableCell>
-                    <TableCell>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${u.role === "admin" ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground"}`}>
-                        {u.role}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {u.id !== user.id && (
-                        <>
+          {usersLoading ? <LoadingSpinner /> : (
+            <div className="bg-card border border-border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredUsers.map(u => (
+                    <TableRow key={u.user_id}>
+                      <TableCell className="font-medium text-sm">{u.name}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{u.email}</TableCell>
+                      <TableCell>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${u.role === "admin" ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground"}`}>
+                          {u.role}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {u.user_id !== user.id ? (
                           <button
-                            onClick={() => handleToggleRole(u.id)}
+                            onClick={() => handleToggleRole(u.user_id, u.role || "user")}
                             title={u.role === "admin" ? "Demote to user" : "Promote to admin"}
                             className="p-2 text-muted-foreground hover:text-primary transition-colors"
                           >
                             <Shield size={16} />
                           </button>
-                          <button
-                            onClick={() => handleDeleteUser(u.id)}
-                            className={`p-2 transition-colors ${deleteConfirm === u.id ? "text-destructive font-bold" : "text-muted-foreground hover:text-destructive"}`}
-                          >
-                            <UserX size={16} />
-                          </button>
-                        </>
-                      )}
-                      {u.id === user.id && <span className="text-xs text-muted-foreground italic">You</span>}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {filteredUsers.length === 0 && (
-                  <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-8">No users found.</TableCell></TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic">You</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {filteredUsers.length === 0 && (
+                    <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-8">No users found.</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </div>
       )}
 

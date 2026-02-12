@@ -1,60 +1,138 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { CartItem } from "./CartContext";
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "./AuthContext";
+
+export interface OrderItem {
+  product_name: string;
+  product_image: string | null;
+  price: number;
+  quantity: number;
+  product_id: number;
+}
 
 export interface Order {
   id: number;
-  userId: number;
-  items: CartItem[];
+  user_id: string;
   total: number;
-  status: "Pending" | "Shipped" | "Delivered" | "Cancelled";
-  paymentMethod: "COD" | "Online";
-  date: string;
+  status: string;
+  payment_method: string;
   address: string;
+  created_at: string;
+  items: OrderItem[];
 }
 
 interface OrderContextType {
   orders: Order[];
-  placeOrder: (order: Omit<Order, "id" | "date" | "status">) => Order;
-  getUserOrders: (userId: number) => Order[];
-  updateOrderStatus: (orderId: number, status: Order["status"]) => void;
-  cancelOrder: (orderId: number) => void;
+  placeOrder: (order: { total: number; payment_method: string; address: string; items: OrderItem[] }) => Promise<Order | null>;
+  getUserOrders: () => Order[];
+  updateOrderStatus: (orderId: number, status: string) => Promise<void>;
+  cancelOrder: (orderId: number) => Promise<void>;
+  allOrders: Order[];
+  fetchAllOrders: () => Promise<void>;
+  loading: boolean;
 }
 
 const OrderContext = createContext<OrderContextType | undefined>(undefined);
 
 export const OrderProvider = ({ children }: { children: ReactNode }) => {
-  const [orders, setOrders] = useState<Order[]>(() => {
-    const stored = localStorage.getItem("furnishop_orders");
-    return stored ? JSON.parse(stored) : [];
-  });
+  const { user, isAdmin } = useAuth();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [allOrders, setAllOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchUserOrders = useCallback(async () => {
+    if (!user) { setOrders([]); return; }
+    setLoading(true);
+    const { data: orderRows } = await supabase
+      .from("orders")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+
+    if (!orderRows) { setLoading(false); return; }
+
+    const ordersWithItems: Order[] = await Promise.all(
+      orderRows.map(async (o: any) => {
+        const { data: items } = await supabase
+          .from("order_items")
+          .select("*")
+          .eq("order_id", o.id);
+        return { ...o, items: items ?? [] };
+      })
+    );
+    setOrders(ordersWithItems);
+    setLoading(false);
+  }, [user]);
+
+  const fetchAllOrders = useCallback(async () => {
+    if (!isAdmin) return;
+    const { data: orderRows } = await supabase
+      .from("orders")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (!orderRows) return;
+
+    const ordersWithItems: Order[] = await Promise.all(
+      orderRows.map(async (o: any) => {
+        const { data: items } = await supabase
+          .from("order_items")
+          .select("*")
+          .eq("order_id", o.id);
+        return { ...o, items: items ?? [] };
+      })
+    );
+    setAllOrders(ordersWithItems);
+  }, [isAdmin]);
 
   useEffect(() => {
-    localStorage.setItem("furnishop_orders", JSON.stringify(orders));
-  }, [orders]);
+    fetchUserOrders();
+  }, [fetchUserOrders]);
 
-  const placeOrder = (orderData: Omit<Order, "id" | "date" | "status">): Order => {
-    const newOrder: Order = {
-      ...orderData,
-      id: Date.now(),
-      date: new Date().toISOString(),
-      status: "Pending",
-    };
-    setOrders(prev => [newOrder, ...prev]);
-    return newOrder;
+  const placeOrder = async (orderData: { total: number; payment_method: string; address: string; items: OrderItem[] }) => {
+    if (!user) return null;
+    const { data: order, error } = await supabase
+      .from("orders")
+      .insert({
+        user_id: user.id,
+        total: orderData.total,
+        payment_method: orderData.payment_method,
+        address: orderData.address,
+      })
+      .select()
+      .single();
+
+    if (error || !order) return null;
+
+    const itemsToInsert = orderData.items.map(i => ({
+      order_id: (order as any).id,
+      product_id: i.product_id,
+      product_name: i.product_name,
+      product_image: i.product_image,
+      price: i.price,
+      quantity: i.quantity,
+    }));
+
+    await supabase.from("order_items").insert(itemsToInsert);
+    await fetchUserOrders();
+    return { ...(order as any), items: orderData.items };
   };
 
-  const getUserOrders = (userId: number) => orders.filter(o => o.userId === userId);
+  const getUserOrders = () => orders;
 
-  const updateOrderStatus = (orderId: number, status: Order["status"]) => {
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
+  const updateOrderStatus = async (orderId: number, status: string) => {
+    await supabase.from("orders").update({ status }).eq("id", orderId);
+    await fetchAllOrders();
+    await fetchUserOrders();
   };
 
-  const cancelOrder = (orderId: number) => {
-    setOrders(prev => prev.map(o => o.id === orderId && o.status === "Pending" ? { ...o, status: "Cancelled" } : o));
+  const cancelOrder = async (orderId: number) => {
+    await supabase.from("orders").update({ status: "Cancelled" }).eq("id", orderId);
+    await fetchUserOrders();
   };
 
   return (
-    <OrderContext.Provider value={{ orders, placeOrder, getUserOrders, updateOrderStatus, cancelOrder }}>
+    <OrderContext.Provider value={{ orders, placeOrder, getUserOrders, updateOrderStatus, cancelOrder, allOrders, fetchAllOrders, loading }}>
       {children}
     </OrderContext.Provider>
   );

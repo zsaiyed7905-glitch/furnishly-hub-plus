@@ -12,11 +12,11 @@ const LoginPage = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    const success = await login(email, password);
-    if (success) {
+    const result = await login(email, password);
+    if (result.success) {
       navigate("/");
     } else {
-      setError("Invalid email or password");
+      setError(result.error || "Invalid email or password");
     }
   };
 
@@ -57,12 +57,6 @@ const LoginPage = () => {
             Don't have an account? <Link to="/signup" className="text-primary hover:underline">Sign up</Link>
           </p>
         </form>
-
-        <div className="mt-6 bg-secondary/50 border border-border rounded-lg p-4 text-sm text-muted-foreground">
-          <p className="font-medium text-foreground mb-2">Demo Credentials:</p>
-          <p>Admin: admin@furnishop.com / admin123</p>
-          <p>User: john@example.com / user123</p>
-        </div>
       </div>
     </div>
   );

@@ -7,25 +7,23 @@ const AdminLoginPage = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    const success = await login(email, password);
-    if (success) {
-      const stored = localStorage.getItem("furnishop_user");
-      if (stored) {
-        const user = JSON.parse(stored);
-        if (user.role === "admin") {
-          navigate("/admin");
-          return;
-        }
-      }
-      setError("This account does not have admin access");
+    setLoading(true);
+    const result = await login(email, password);
+    if (result.success) {
+      // Wait a moment for auth state to settle, then check admin
+      setTimeout(() => {
+        navigate("/admin");
+      }, 500);
     } else {
-      setError("Invalid email or password");
+      setError(result.error || "Invalid email or password");
+      setLoading(false);
     }
   };
 
@@ -62,16 +60,10 @@ const AdminLoginPage = () => {
               placeholder="••••••••"
             />
           </div>
-          <button type="submit" className="w-full bg-primary text-primary-foreground py-2.5 rounded-md font-medium btn-transition">
-            Sign In as Admin
+          <button type="submit" disabled={loading} className="w-full bg-primary text-primary-foreground py-2.5 rounded-md font-medium btn-transition disabled:opacity-50">
+            {loading ? "Signing In..." : "Sign In as Admin"}
           </button>
         </form>
-
-        <div className="mt-6 bg-secondary/50 border border-border rounded-lg p-4 text-sm text-muted-foreground">
-          <p className="font-medium text-foreground mb-2">Admin Credentials:</p>
-          <p>Email: admin@furnishop.com</p>
-          <p>Password: admin123</p>
-        </div>
       </div>
     </div>
   );

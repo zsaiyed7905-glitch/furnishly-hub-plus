@@ -7,6 +7,7 @@ const SignupPage = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
   const { signup } = useAuth();
   const navigate = useNavigate();
 
@@ -14,13 +15,25 @@ const SignupPage = () => {
     e.preventDefault();
     setError("");
     if (password.length < 6) { setError("Password must be at least 6 characters"); return; }
-    const success = await signup(name, email, password);
-    if (success) {
-      navigate("/");
+    const result = await signup(name, email, password);
+    if (result.success) {
+      setSuccess(true);
     } else {
-      setError("Email already registered");
+      setError(result.error || "Signup failed");
     }
   };
+
+  if (success) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center px-4 animate-fade-in">
+        <div className="w-full max-w-md text-center">
+          <h1 className="font-display text-3xl font-bold mb-4">Check Your Email</h1>
+          <p className="text-muted-foreground mb-6">We've sent a confirmation link to <strong>{email}</strong>. Please verify your email to continue.</p>
+          <Link to="/login" className="text-primary hover:underline">Go to Login</Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4 animate-fade-in">
